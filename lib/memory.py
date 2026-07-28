@@ -23,12 +23,9 @@ import os
 from lib.tidb import get_db, query
 from lib.embeddings import embed_str
 
-# ---- tuning (env-overridable) ----------------------------------------------
-CONTEXT_BUDGET_TOKENS = int(os.getenv("CONTEXT_BUDGET_TOKENS", "3600"))
-DEDUP_DISTANCE_THRESHOLD = float(os.getenv("DEDUP_DISTANCE_THRESHOLD", "0.15"))
-WRITE_CONTROL_MIN_CONFIDENCE = float(os.getenv("WRITE_CONTROL_MIN_CONFIDENCE", "0.80"))
-ROUTING_CONFIDENCE_GATE = float(os.getenv("ROUTING_CONFIDENCE_GATE", "0.85"))
-ROUTING_SIMILARITY_GATE = float(os.getenv("ROUTING_SIMILARITY_GATE", "0.55"))
+# ---- tuning: read from the live TUNING singleton at call-time --------------
+# (knobs are mutable at runtime so the eval sweep can show engineer control)
+from lib.tuning import TUNING
 
 TIER_CAPS = {
     "t1_entity": 120, "t2_recent": 300, "t3_active": 200,
@@ -61,6 +58,7 @@ def assemble_context(entity_ref: str = None, session_id: str = None,
 
     sources, blocks = {}, []
     budget_used = 0
+    budget_total = TUNING.context_budget_tokens
     top_match, vector_matches = None, []
 
     db = get_db()
@@ -72,7 +70,7 @@ def assemble_context(entity_ref: str = None, session_id: str = None,
         if t1_text:
             t1_text = _truncate(t1_text, TIER_CAPS["t1_entity"])
             cost = _approx_tokens(t1_text)
-            if budget_used + cost <= CONTEXT_BUDGET_TOKENS:
+            if budget_used + cost <= budget_total:
                 blocks.append(t1_text); budget_used += cost
                 sources["t1_entity"] = {"tokens": cost, "status": t1_status}
         else:
@@ -83,7 +81,7 @@ def assemble_context(entity_ref: str = None, session_id: str = None,
         if t2_lines:
             t2_text = _truncate("[T2 recent] " + " | ".join(t2_lines), TIER_CAPS["t2_recent"])
             cost = _approx_tokens(t2_text)
-            if budget_used + cost <= CONTEXT_BUDGET_TOKENS:
+            if budget_used + cost <= budget_total:
                 blocks.append(t2_text); budget_used += cost
                 sources["t2_recent"] = {"tokens": cost, "count": len(t2_lines), "status": t2_status}
         else:
@@ -101,7 +99,7 @@ def assemble_context(entity_ref: str = None, session_id: str = None,
                     f"[T3 active] obs={row['observation']} | hyp={row['hypothesis']} "
                     f"| conf={row['confidence']}", TIER_CAPS["t3_active"])
                 cost = _approx_tokens(t3)
-                if budget_used + cost <= CONTEXT_BUDGET_TOKENS:
+                if budget_used + cost <= budget_total:
                     blocks.append(t3); budget_used += cost
                     sources["t3_active"] = {"tokens": cost, "status": "ok"}
 
@@ -110,7 +108,7 @@ def assemble_context(entity_ref: str = None, session_id: str = None,
         if t4_lines:
             t4_text = _truncate("[T4 prior] " + " | ".join(t4_lines), TIER_CAPS["t4_prior"])
             cost = _approx_tokens(t4_text)
-            if budget_used + cost <= CONTEXT_BUDGET_TOKENS:
+            if budget_used + cost <= budget_total:
                 blocks.append(t4_text); budget_used += cost
                 sources["t4_prior"] = {"tokens": cost, "count": len(t4_lines), "status": t4_status}
         else:
@@ -136,7 +134,7 @@ def assemble_context(entity_ref: str = None, session_id: str = None,
                         for r in vector_matches]
                     t5 = _truncate("[T5 semantic] " + " | ".join(lines), TIER_CAPS["t5_semantic"])
                     cost = _approx_tokens(t5)
-                    if budget_used + cost <= CONTEXT_BUDGET_TOKENS:
+                    if budget_used + cost <= budget_total:
                         blocks.append(t5); budget_used += cost
                         sources["t5_semantic"] = {"tokens": cost, "count": len(vector_matches), "status": "ok"}
             except Exception as e:
@@ -148,7 +146,7 @@ def assemble_context(entity_ref: str = None, session_id: str = None,
         "system_context": "\n".join(blocks),
         "sources": sources,
         "budget_used": budget_used,
-        "budget_total": CONTEXT_BUDGET_TOKENS,
+        "budget_total": budget_total,
         "top_match": top_match,
         "vector_matches": vector_matches,
     }
@@ -187,9 +185,9 @@ def remember_pattern(content: str, category: str = "pattern", confidence: float 
     """Duty 1 — write control. Persist a learned pattern to incident_memory only
     if confidence clears the floor. Deterministic gate; misaligned models cannot
     pollute the store."""
-    if confidence < WRITE_CONTROL_MIN_CONFIDENCE:
+    if confidence < TUNING.write_control_min_confidence:
         return (f"❌ Write control: confidence={confidence:.2f} below floor "
-                f"({WRITE_CONTROL_MIN_CONFIDENCE}). Not persisted.")
+                f"({TUNING.write_control_min_confidence}). Not persisted.")
     try:
         vec = embed_str(content)
         n = _exec(
@@ -288,7 +286,7 @@ def consolidate_memory() -> str:
                    WHERE status='active' AND superseded_by IS NULL AND id != %s
                      AND VEC_COSINE_DISTANCE(memory_vec, %s) < %s
                    ORDER BY distance ASC""",
-                (anchor["memory_vec"], anchor["id"], anchor["memory_vec"], DEDUP_DISTANCE_THRESHOLD))
+                (anchor["memory_vec"], anchor["id"], anchor["memory_vec"], TUNING.dedup_distance_threshold))
             dupes = cur.fetchall()
             if not dupes:
                 continue
@@ -340,7 +338,7 @@ def decay_memory(half_life_days: int = 30, dry_run: bool = True,
             new = round(old * math.exp(-math.log(2) * days / half_life_days), 2)
             decayed.append({"id": r["id"], "days_unreinforced": days,
                             "old_confidence": old, "new_confidence": new,
-                            "will_lose_routing": new < ROUTING_CONFIDENCE_GATE,
+                            "will_lose_routing": new < TUNING.routing_confidence_gate,
                             "snippet": r["content"][:60]})
         if not dry_run and decayed:
             for item in decayed:
@@ -367,8 +365,8 @@ ROUTE_EXPLORE = {"path": "EXPLORE", "thinking_budget": 512, "max_tool_rounds": 1
 def route_investigation(vector_matches, confidence_gate=None, similarity_gate=None) -> dict:
     """Scan Tier-5 matches; if any passes both gates, take the shortcut path
     (low thinking budget, few tool rounds). Otherwise explore."""
-    cg = ROUTING_CONFIDENCE_GATE if confidence_gate is None else float(confidence_gate)
-    sg = ROUTING_SIMILARITY_GATE if similarity_gate is None else float(similarity_gate)
+    cg = TUNING.routing_confidence_gate if confidence_gate is None else float(confidence_gate)
+    sg = TUNING.routing_similarity_gate if similarity_gate is None else float(similarity_gate)
 
     if not vector_matches:
         return {**ROUTE_EXPLORE, "reason": "no semantic-memory matches (cold start)",

@@ -24,17 +24,24 @@ def score_anomaly(metrics: dict) -> tuple:
     """Return (anomaly_score, breakdown dict) for a metrics snapshot.
 
     breakdown maps feature -> sub-score for any feature over threshold; the
-    incident score is the max sub-score (worst single signal dominates)."""
+    incident score is the max sub-score (worst single signal dominates).
+
+    Thresholds are multiplied by TUNING.anomaly_threshold_scale at call-time so
+    engineers can dial triage sensitivity (>1 stricter, <1 more sensitive) and
+    watch the effect in the eval sweep."""
+    from lib.tuning import TUNING
+    scale_thr = TUNING.anomaly_threshold_scale
     breakdown = {}
     for name, cfg in ANOMALY_FEATURES.items():
         val = metrics.get(cfg["metric"])
         if val is None:
             continue
         val = float(val)
-        if val < cfg["threshold"]:
+        threshold = cfg["threshold"] * scale_thr
+        if val < threshold:
             continue
         scale = cfg.get("scale", 1.0)
-        over = (val - cfg["threshold"]) / scale
+        over = (val - threshold) / scale
         sub = min(1.0, max(0.0, over)) * cfg["weight"]
         if sub > 0:
             breakdown[name] = round(sub, 3)

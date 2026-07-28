@@ -1,6 +1,12 @@
 # Reference repos cloned for porting — not part of this project
 _reference/
 
+# Discovery/scoping doc lives in Google Docs, not the repo
+docs/POC_DISCOVERY.md
+
+# Eval harness outputs
+eval/out/
+
 # Secrets & env
 .env
 *.pem

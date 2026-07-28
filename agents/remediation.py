@@ -30,7 +30,8 @@ from lib.memory import (assemble_context, route_investigation,              # no
                         record_runbook_outcome)
 
 # Minimum runbook vector similarity to auto-apply; below this we escalate.
-RUNBOOK_RELEVANCE_FLOOR = float(os.getenv("RUNBOOK_RELEVANCE_FLOOR", "0.45"))
+# Read from the live TUNING singleton so the eval sweep can vary it at runtime.
+from lib.tuning import TUNING  # noqa: E402
 
 
 def _pick_incident(incident_ref, latest):
@@ -70,7 +71,7 @@ def remediate(incident_ref=None, latest=False, auto_resolve=True) -> dict:
     # enough. Otherwise escalate rather than run an unrelated runbook.
     top_runbook = runbooks[0] if isinstance(runbooks, list) and runbooks else None
     top_sim = float(top_runbook.get("similarity") or 0) if top_runbook else 0.0
-    chosen_runbook = top_runbook if top_sim >= RUNBOOK_RELEVANCE_FLOOR else None
+    chosen_runbook = top_runbook if top_sim >= TUNING.runbook_relevance_floor else None
 
     # 4. write episodic checkpoint
     conf = float(inc["anomaly_score"]) if inc.get("anomaly_score") else 0.6
@@ -97,7 +98,7 @@ def remediate(incident_ref=None, latest=False, auto_resolve=True) -> dict:
         _set_status(ref, "resolved")
     else:
         reason = (f"nearest runbook similarity {top_sim:.2f} < floor "
-                  f"{RUNBOOK_RELEVANCE_FLOOR} — no relevant runbook, escalating"
+                  f"{TUNING.runbook_relevance_floor} — no relevant runbook, escalating"
                   if top_runbook else "no runbooks in memory — escalating")
         actions.append(reason)
         _set_status(ref, "investigating")
@@ -109,7 +110,7 @@ def remediate(incident_ref=None, latest=False, auto_resolve=True) -> dict:
         "route": {"path": route["path"], "reason": route["reason"]},
         "chosen_runbook": chosen_runbook["title"] if chosen_runbook else None,
         "top_runbook_similarity": round(top_sim, 3),
-        "runbook_relevance_floor": RUNBOOK_RELEVANCE_FLOOR,
+        "runbook_relevance_floor": TUNING.runbook_relevance_floor,
         "runbook_steps": chosen_runbook["steps"] if chosen_runbook else None,
         "similar_patterns": similar if isinstance(similar, list) else [],
         "write_back_actions": actions,

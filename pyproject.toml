@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "network-incident-agent"
+version = "0.1.0"
+description = "Telecom network incident investigation agents on a TiDB cognitive foundation (Devoteam x Google Cloud POC)"
+authors = ["Bernard Kavanagh <bernard.k@pingcap.com>"]
+readme = "README.md"
+packages = [
+  { include = "network_incident_agent" },
+  { include = "lib" },
+  { include = "adapters" },
+]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<4.0"
+# --- Google ADK stack (unchanged from Devoteam's agent) ---
+google-adk = ">=1.5.0"
+google-cloud-aiplatform = ">=1.60.0"
+google-genai = ">=1.0.0"
+# --- TiDB cognitive foundation (replaces BigQuery + Vertex ranker + Memory Bank) ---
+pymysql = ">=1.1.0"
+sentence-transformers = ">=3.0.0"
+python-dotenv = ">=1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

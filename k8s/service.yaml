@@ -1,0 +1,15 @@
+# LoadBalancer Service. On standard GKE this provisions a cloud LB; on GDC bare
+# metal the SAME manifest is served by bundled MetalLB (L2) from a configured
+# address pool — no change required.
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-incident-agent
+spec:
+  type: LoadBalancer
+  selector:
+    app: network-incident-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

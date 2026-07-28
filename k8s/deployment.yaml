@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-incident-agent
+  labels:
+    app: network-incident-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: network-incident-agent
+  template:
+    metadata:
+      labels:
+        app: network-incident-agent
+    spec:
+      containers:
+        - name: agent
+          # Replace with your Artifact Registry image:
+          #   REGION-docker.pkg.dev/PROJECT/REPO/network-incident-agent:TAG
+          image: network-incident-agent:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: network-incident-config
+            - secretRef:
+                name: network-incident-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /list-apps
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10

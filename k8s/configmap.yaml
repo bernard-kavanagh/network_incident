@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: network-incident-config
+data:
+  GOOGLE_GENAI_USE_VERTEXAI: "1"
+  GOOGLE_CLOUD_LOCATION: "us-central1"
+  ROOT_AGENT_MODEL: "gemini-2.5-flash"
+  GEMINI_MODEL: "gemini-2.5-flash"
+  THINKING_BUDGET: "0"
+  RERANK_RETRIEVE_TOP_N: "10"
+  OUTPUT_N_TICKETS: "10"
+  EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+  TIDB_DATABASE: "network_incident"
+  TIDB_PORT: "4000"
+  # Container CA path (debian). On TiDB Cloud this verifies the gateway cert.
+  TIDB_SSL_CA: "/etc/ssl/certs/ca-certificates.crt"

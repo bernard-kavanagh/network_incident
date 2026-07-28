@@ -1,0 +1,51 @@
+# ============================================================================
+# Operator-ready TiDB for GDC bare metal — the "flip the switch" artifact.
+#
+# For the POC we use TiDB Cloud Starter (set TIDB_HOST/USER/PASSWORD in the
+# Secret). When the sovereign / bare-metal phase starts, install TiDB Operator
+# and apply THIS TiDBCluster to run TiDB in-cluster — the app code, schema, and
+# .env contract are unchanged; only the connection endpoint moves to the
+# in-cluster Service (e.g. basic-tidb.tidb-cluster.svc:4000).
+#
+# Prereqs on GDC bare metal (from the deployment research):
+#   1. A default StorageClass backed by a GDC-Ready CSI driver (NOT local
+#      volumes for HA) — TiKV/PD/TiFlash all need PersistentVolumes.
+#   2. TiDB Operator installed (CRDs + tidb-operator Helm chart).
+#   3. MetalLB address pool for the TiDB service if exposed off-cluster.
+#
+#   helm repo add pingcap https://charts.pingcap.org
+#   kubectl create namespace tidb-admin && kubectl create namespace tidb-cluster
+#   helm install -n tidb-admin tidb-operator pingcap/tidb-operator
+#   kubectl apply -n tidb-cluster -f deploy/tidbcluster.yaml
+# ============================================================================
+apiVersion: pingcap.com/v1alpha1
+kind: TiDBCluster
+metadata:
+  name: basic
+spec:
+  version: v8.5.0
+  timezone: UTC
+  pvReclaimPolicy: Retain
+  # storageClassName must reference a CSI-backed class available on the cluster.
+  pd:
+    replicas: 3
+    requests:
+      storage: "20Gi"
+    config: {}
+  tikv:
+    replicas: 3
+    requests:
+      storage: "100Gi"
+    config: {}
+  tidb:
+    replicas: 2
+    service:
+      type: ClusterIP
+    config: {}
+  # TiFlash powers the HTAP deviation queries — required for this workload.
+  tiflash:
+    replicas: 1
+    storageClaims:
+      - resources:
+          requests:
+            storage: "100Gi"

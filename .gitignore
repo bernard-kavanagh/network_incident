@@ -1,0 +1,27 @@
+# Reference repos cloned for porting — not part of this project
+_reference/
+
+# Secrets & env
+.env
+*.pem
+ca.pem
+isrgrootx1.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.poetry/
+dist/
+build/
+
+# Models cache
+.cache/
+models/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
